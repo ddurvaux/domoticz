@@ -3,6 +3,7 @@
 # David DURVAUX - david@autopsit.org
 # version 2020-06-08
 #
+import json
 import urllib
 import pickle
 import requests
@@ -10,29 +11,34 @@ import http.cookiejar
 from datetime import datetime
 from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
-
+import paho.mqtt.publish as publish    # apt-get install python3-paho-mqtt
 
 # -----------------------------------------------------------------------------
 
 # Authentication settings
 # Change here
-AuthCard = { "A1" : "0000",  "B1" : "8888",  "C1" : "1212",  "D1" : "4321",  "E1" : "1234",  "F1" : "0000", 
-             "A2" : "0000",  "B2" : "8888",  "C2" : "1212",  "D2" : "4321",  "E2" : "1234",  "F2" : "0000", 
-             "A3" : "0000",  "B3" : "8888",  "C3" : "1212",  "D3" : "4321",  "E3" : "1234",  "F3" : "0000", 
-             "A4" : "0000",  "B4" : "8888",  "C4" : "1212",  "D4" : "4321",  "E4" : "1234",  "F4" : "0000", 
-             "A5" : "0000",  "B5" : "8888",  "C5" : "1212",  "D5" : "4321",  "E5" : "1234",  "F5" : "0000"  }
-PinCode = 0000
-AlarmURL = "http://192.0.0.1"
+AuthCard = { "A1" : "0000",  "B1" : "0000",  "C1" : "0000",  "D1" : "0000",  "E1" : "0000",  "F1" : "0000", 
+             "A2" : "0000",  "B2" : "0000",  "C2" : "0000",  "D2" : "0000",  "E2" : "0000",  "F2" : "0000", 
+             "A3" : "0000",  "B3" : "0000",  "C3" : "0000",  "D3" : "0000",  "E3" : "0000",  "F3" : "0000", 
+             "A4" : "0000",  "B4" : "0000",  "C4" : "0000",  "D4" : "0000",  "E4" : "0000",  "F4" : "0000", 
+             "A5" : "0000",  "B5" : "0000",  "C5" : "0000",  "D5" : "0000",  "E5" : "0000",  "F5" : "0000"  }
+PinCode = 1234
+AlarmURL = "http://192.168.0.1"
 User = "u" # Utilisateur1 = u; Installateur = i; Télésurveillance = t
 debug = False
 
 # Trigger IFFT Event
-# curl -X POST https://maker.ifttt.com/trigger/alarm_disarmed/with/key/<key>
-# curl -X POST https://maker.ifttt.com/trigger/alarm_armed/with/key/<key>
 webhook_url = "https://maker.ifttt.com/trigger/%s/with/key/%s"
-webhook_key = "foobar"
+webhook_key = "azertyuiop"
 webhook_arm = "alarm_armed"
 webhook_disarm = "alarm_disarmed"
+
+# MQTT info
+IDZONEA = 1
+IDZONEB = 2
+IDZONEC = 3
+IDCAMERA = 4
+MQTTSRV = "127.0.0.1"
 
 # Keeping status
 status = {
@@ -46,7 +52,6 @@ def __get2FA():
         Parse login page to retrieve the 2nd factor
     """
     try:
-        # http://192.168.100.227/fr/login.htm
         query = "%s/fr/login.htm" % AlarmURL
         if debug:
             print("QUERYING: %s" % query)
@@ -138,6 +143,7 @@ def getStatus():
     except Exception as e:
         print(str(e))
     return None
+    
 
 def isAlarmArmed(status):
     """
@@ -146,6 +152,22 @@ def isAlarmArmed(status):
          'zone2': 'off',
          [...]}
     """
+    # push status via MQTT
+    if(status["zone0"] == "off"):
+        publish.single("domoticz/in", json.dumps({"command": "switchlight", "idx": IDZONEA, "switchcmd": "Off"}), hostname=MQTTSRV)
+    else:
+        publish.single("domoticz/in", json.dumps({"command": "switchlight", "idx": IDZONEA, "switchcmd": "On"}), hostname=MQTTSRV)
+    if(status["zone1"] == "off"):
+        publish.single("domoticz/in", json.dumps({"command": "switchlight", "idx": IDZONEB, "switchcmd": "Off"}), hostname=MQTTSRV)
+    else:
+        publish.single("domoticz/in", json.dumps({"command": "switchlight", "idx": IDZONEB, "switchcmd": "On"}), hostname=MQTTSRV)
+    if(status["zone2"] == "off"):
+        publish.single("domoticz/in", json.dumps({"command": "switchlight", "idx": IDZONEC, "switchcmd": "Off"}), hostname=MQTTSRV)
+    else:
+        publish.single("domoticz/in", json.dumps({"command": "switchlight", "idx": IDZONEC, "switchcmd": "On"}), hostname=MQTTSRV)
+
+
+    # check Alarm status
     if(status["zone0"] == "off" and status["zone1"] == "off" and status["zone2"] == "off"):
         status["alarm_armed"] = False
         if(debug):
@@ -161,6 +183,7 @@ def isAlarmArmed(status):
 def disableArlo():
     if(debug):
         print("Disarm Arlo")
+    publish.single("domoticz/in", json.dumps({"command": "switchlight", "idx": IDCAMERA, "switchcmd": "Off"}), hostname=MQTTSRV)
     url = webhook_url % (webhook_disarm, webhook_key)
     r = requests.post(url)
     if(debug):
@@ -171,6 +194,7 @@ def disableArlo():
 def enableArlo():
     if(debug):
         print("Arm Arlo")
+    publish.single("domoticz/in", json.dumps({"command": "switchlight", "idx": IDCAMERA, "switchcmd": "On"}), hostname=MQTTSRV)
     url = webhook_url % (webhook_arm, webhook_key)
     r = requests.post(url)
     if(debug):
@@ -181,7 +205,10 @@ def enableArlo():
 def loadStatus(filename="/tmp/status.json"):
     try:
         with open(filename, "rb") as pickle_file:
+            global status
             status = pickle.load(pickle_file)
+            if(debug):
+                print("Loading: %" % status)
             return status
     except Exception as e:
         print("Impossible to load status to %s (%s)" % (filename, e))
@@ -189,8 +216,11 @@ def loadStatus(filename="/tmp/status.json"):
 
 
 def saveStatus(filename="/tmp/status.json"):
+    global status
     now = datetime.now()
     status["last_check"] = now.strftime("%Y-%m-%d %H:%M:%S")
+    if(debug):
+        print("Saving: %s" % status)
     try:
         with open(filename, 'wb') as pickle_file:
             pickle.dump(status, pickle_file)
@@ -209,13 +239,16 @@ def main():
     if sec_fa is not None:
         logged = authenticate(User, PinCode, AuthCard[sec_fa])
     if logged:
+        global status
         loadStatus()
         curstate = getStatus()
-        if(isAlarmArmed(curstate) and not status["alarm_armed"]):
+        if(isAlarmArmed(curstate) and not(status["alarm_armed"])):
             print("Enable Arlo monitoring")
+            status["alarm_armed"] = True
             enableArlo()
-        elif(status["alarm_armed"]):
+        elif(status["alarm_armed"] and not(isAlarmArmed(curstate))):
             print("Disable Arlo monitoring")
+            status["alarm_armed"] = False
             disableArlo()
         else:
             print("No change, keeping Arlo as it was")
