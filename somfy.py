@@ -7,6 +7,7 @@ import json
 import urllib
 import pickle
 import requests
+import argparse
 import http.cookiejar
 from datetime import datetime
 from bs4 import BeautifulSoup
@@ -229,9 +230,9 @@ def saveStatus(filename="/tmp/status.json"):
     return
 
 
-def main():
+def signArloWithAlarm():
     """
-        Main function, to be called when used as CLI tool
+    Turn camera ON if alarm is set and OFF if alarme is disabled
     """
     # Authenticate
     logged = True # Suppose it's always logged on - should be improved
@@ -254,6 +255,27 @@ def main():
             print("No change, keeping Arlo as it was")
     saveStatus()
     print("Alarm checked at %s and status is %s" % (status["last_check"], status["alarm_armed"]))
+
+
+def main():
+    """
+        Main function, to be called when used as CLI tool
+    """
+    # Argument definition
+    parser = argparse.ArgumentParser(description='Integration of Arlo Camera with Somfy Protexiom')
+    parser.add_argument('-e', '--enable-arlo', action='store_true', dest='enable', help='Enable Arlo Camera')
+    parser.add_argument('-d', '--disable-arlo', action='store_true', dest='disable', help='Disable Arlo Camera')
+    parser.add_argument('-s', '--sync-arlo', action='store_true', dest='sync', help='Sync Arlo Camera with Protexiom status')
+    args = parser.parse_args()
+
+    if(args.enable):
+        enableArlo()
+    elif(args.disable):
+        disableArlo()
+    else:
+        signArloWithAlarm()
+    return
+    
 
 
 # --------------------------------------------------------------------------- #
